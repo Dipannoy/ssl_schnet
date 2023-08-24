@@ -10,6 +10,8 @@ from random import sample
 from sklearn import metrics
 from datetime import datetime
 
+
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,9 +20,15 @@ from torch.autograd import Variable
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.tensorboard import SummaryWriter
 
+
+
+
 from datasets.data_finetune import CIFData
 from datasets.data_finetune import collate_pool, get_train_val_test_loader
-from models.cgcnn_finetune import CrystalGraphConvNet
+# from models.cgcnn_finetune import CrystalGraphConvNet
+from models.schnet_pretrain import CrystalGraphConvNet
+
+
 
 import warnings
 warnings.simplefilter("ignore")
@@ -112,7 +120,7 @@ class FineTune(object):
         orig_atom_fea_len = structures[0].shape[-1]
         nbr_fea_len = structures[1].shape[-1]
         model = CrystalGraphConvNet(orig_atom_fea_len, nbr_fea_len,
-                                    classification=(self.config['task']=='classification'), 
+                                    # classification=(self.config['task']=='classification'), 
                                     **self.config['model']
         )
         if self.config['cuda']:
@@ -158,10 +166,16 @@ class FineTune(object):
         for epoch_counter in range(self.config['epochs']):
             for bn, (input, target, _) in enumerate(self.train_loader):
                 if self.config['cuda']:
-                    input_var = (Variable(input[0].to(self.device, non_blocking=True)),
-                                Variable(input[1].to(self.device, non_blocking=True)),
-                                input[2].to(self.device, non_blocking=True),
-                                [crys_idx.to(self.device, non_blocking=True) for crys_idx in input[3]])
+                      print(input[2])
+                    # input_var = (Variable(input[0].to(self.device, non_blocking=True)),
+                    #             Variable(input[1].to(self.device, non_blocking=True)),
+                    #             input[2].to(self.device, non_blocking=True),
+                    #             [crys_idx.to(self.device, non_blocking=True) for crys_idx in input[3]])
+                      input_var = (Variable(input[0].to(self.device, non_blocking=True)),
+                                Variable(input[1].to(self.device, non_blocking=True)).float(),
+                                Variable(input[2].to(self.device, non_blocking=True)),
+                                input[3].to(self.device, non_blocking=True),
+                                [crys_idx.to(self.device, non_blocking=True) for crys_idx in input[4]])
                 else:
                     input_var = (Variable(input[0]),
                                 Variable(input[1]),
@@ -225,7 +239,7 @@ class FineTune(object):
 
         try:
             checkpoints_folder = os.path.join(self.config['fine_tune_from'], 'checkpoints')
-            load_state = torch.load(os.path.join(checkpoints_folder, 'model_14.pth'),  map_location=self.config['gpu']) 
+            load_state = torch.load(os.path.join(checkpoints_folder, 'model.pth'),  map_location=self.config['gpu']) 
  
             # checkpoint = torch.load('model_best.pth.tar', map_location=args.gpu)
             # load_state = checkpoint['state_dict']
@@ -264,10 +278,15 @@ class FineTune(object):
             model.eval()
             for bn, (input, target, _) in enumerate(valid_loader):
                 if self.config['cuda']:
+                    # input_var = (Variable(input[0].to(self.device, non_blocking=True)),
+                    #             Variable(input[1].to(self.device, non_blocking=True)),
+                    #             input[2].to(self.device, non_blocking=True),
+                    #             [crys_idx.to(self.device, non_blocking=True) for crys_idx in input[3]])
                     input_var = (Variable(input[0].to(self.device, non_blocking=True)),
-                                Variable(input[1].to(self.device, non_blocking=True)),
-                                input[2].to(self.device, non_blocking=True),
-                                [crys_idx.to(self.device, non_blocking=True) for crys_idx in input[3]])
+                                Variable(input[1].to(self.device, non_blocking=True)).float(),
+                                Variable(input[2].to(self.device, non_blocking=True)),
+                                input[3].to(self.device, non_blocking=True),
+                                [crys_idx.to(self.device, non_blocking=True) for crys_idx in input[4]])
                 else:
                     input_var = (Variable(input[0]),
                                 Variable(input[1]),
@@ -357,10 +376,15 @@ class FineTune(object):
             self.model.eval()
             for bn, (input, target, batch_cif_ids) in enumerate(self.test_loader):
                 if self.config['cuda']:
+                    # input_var = (Variable(input[0].to(self.device, non_blocking=True)),
+                    #             Variable(input[1].to(self.device, non_blocking=True)),
+                    #             input[2].to(self.device, non_blocking=True),
+                    #             [crys_idx.to(self.device, non_blocking=True) for crys_idx in input[3]])
                     input_var = (Variable(input[0].to(self.device, non_blocking=True)),
-                                Variable(input[1].to(self.device, non_blocking=True)),
-                                input[2].to(self.device, non_blocking=True),
-                                [crys_idx.to(self.device, non_blocking=True) for crys_idx in input[3]])
+                                Variable(input[1].to(self.device, non_blocking=True)).float(),
+                                Variable(input[2].to(self.device, non_blocking=True)),
+                                input[3].to(self.device, non_blocking=True),
+                                [crys_idx.to(self.device, non_blocking=True) for crys_idx in input[4]])
                 else:
                     input_var = (Variable(input[0]),
                                 Variable(input[1]),

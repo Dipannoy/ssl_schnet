@@ -17,8 +17,8 @@ model:
   n_h: 1
 
 dataset:
-  root_dir: zach_222k_bvm_cifs
-  max_num_nbr: 10
+  root_dir: zach_222k_dp_bvm_cifs
+  max_num_nbr: 12
   radius: 8
   dmin: 0
   step: 0.2

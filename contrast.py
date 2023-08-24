@@ -104,9 +104,7 @@ class CrystalContrastive(object):
               
                                     **self.config['model']
         )
-        # print('---------------------length check--------------------------------')
-        # print(orig_atom_fea_len)
-        # print(nbr_fea_len)
+      
         model = self._load_pre_trained_weights(model)
         if self.config['cuda'] and torch.cuda.device_count()>1:
             #model = nn.DataParallel(model, device_ids = [0,1,2])
@@ -143,19 +141,7 @@ class CrystalContrastive(object):
 
         for epoch_counter in range(self.config['epochs']):
             for bn, (input_1, input_2, _) in enumerate(self.train_loader):
-                # print('edge info')
-                # print(input_1[0].size())
-                # print((input_1[1]).size())
-                # print(input_1[2].size())
-                # print(input_1[3][1].size())
 
-                # print(input_1[3][1].max())
-
-
-
-
-
-                # print(input_1[3].size())
                 if self.config['cuda']:
                     input_var_rot_1 = (Variable(input_1[0].to(self.device, non_blocking=True)),
                                 Variable(input_1[1].to(self.device, non_blocking=True)).float(),
@@ -168,15 +154,7 @@ class CrystalContrastive(object):
                                 Variable(input_2[2].to(self.device, non_blocking=True)),
                                 input_2[3].to(self.device, non_blocking=True),
                                 [crys_idx.to(self.device, non_blocking=True) for crys_idx in input_2[4]])
-                # else:
-                #     input_var_rot_1 = (Variable(input_1[0]),
-                #                 Variable(input_1[1]),
-                #                 input_1[2],
-                #                 input_1[3])
-                #     input_var_rot_2 = (Variable(input_2[0]),
-                #                 Variable(input_2[1]),
-                #                 input_2[2],
-                #                 input_2[3])
+            
                 else:
                     input_var_rot_1 = (Variable(input_1[0]),
                                 Variable(input_1[1]).float(),
@@ -189,11 +167,9 @@ class CrystalContrastive(object):
                                 input_2[3].int(),
                                 input_2[4])
                 
-                # print(input_var_rot_1[0])
 
                 loss = self._step(model, input_var_rot_1, input_var_rot_2)
-                # print('-----------------------------loss---------------------------------------')
-                # print(loss)
+               
 
                 if n_iter % self.config['log_every_n_steps'] == 0:
                     self.writer.add_scalar('train_loss', loss.item(), global_step=n_iter)
@@ -210,6 +186,8 @@ class CrystalContrastive(object):
             # validate the model if requested
             if epoch_counter % self.config['eval_every_n_epochs'] == 0:
                 valid_loss = self._validate(model, self.valid_loader)
+                # print(epoch_counter)
+
                 print('Validation', valid_loss)
                 if valid_loss < best_valid_loss:
                     # save the model weights

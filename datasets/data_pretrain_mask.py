@@ -10,11 +10,14 @@ import math
 import  numpy  as  np
 import torch
 import os
+import ase
 from pymatgen.core.structure import Structure
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.dataloader import default_collate
 from torch.utils.data.sampler import SubsetRandomSampler
 from torch_geometric.utils import dense_to_sparse, add_self_loops
+from scipy.stats import rankdata
+
 import copy
 
 from datasets.augmentation import RotationTransformation, PerturbStructureTransformation, RemoveSitesTransformation
@@ -303,6 +306,54 @@ def collate_pool(dataset_list):
     #         torch.LongTensor(total_edge_index_2),
     #         crystal_atom_idx),\
     #         batch_cif_ids
+def threshold_sort(matrix, threshold, neighbors, reverse=False, adj=False):
+    mask = matrix > threshold
+    # print('------------------------------------------------')
+    # print(matrix)
+    # print(mask)
+    distance_matrix_trimmed = np.ma.array(matrix, mask=mask)
+    # print(distance_matrix_trimmed)
+    if reverse == False:
+        distance_matrix_trimmed = rankdata(
+            distance_matrix_trimmed, method="ordinal", axis=1
+        )
+    elif reverse == True:
+        distance_matrix_trimmed = rankdata(
+            distance_matrix_trimmed * -1, method="ordinal", axis=1
+        )
+    # print(np.where(mask, np.nan, distance_matrix_trimmed))
+    distance_matrix_trimmed = np.nan_to_num(
+        np.where(mask, np.nan, distance_matrix_trimmed)
+    )
+    # print(distance_matrix_trimmed)
+
+    # print(distance_matrix_trimmed > neighbors + 1)
+    distance_matrix_trimmed[distance_matrix_trimmed > neighbors + 1] = 0
+    # print(distance_matrix_trimmed)
+    # print(distance_matrix_trimmed)
+
+
+    if adj == False:
+        distance_matrix_trimmed = np.where(
+            distance_matrix_trimmed == 0, distance_matrix_trimmed, matrix
+        )
+        return distance_matrix_trimmed
+    elif adj == True:
+        adj_list = np.zeros((matrix.shape[0], neighbors + 1))
+        adj_attr = np.zeros((matrix.shape[0], neighbors + 1))
+        for i in range(0, matrix.shape[0]):
+            temp = np.where(distance_matrix_trimmed[i] != 0)[0]
+            adj_list[i, :] = np.pad(
+                temp,
+                pad_width=(0, neighbors + 1 - len(temp)),
+                mode="constant",
+                constant_values=0,
+            )
+            adj_attr[i, :] = matrix[i, adj_list[i, :].astype(int)]
+        distance_matrix_trimmed = np.where(
+            distance_matrix_trimmed == 0, distance_matrix_trimmed, matrix
+        )
+        return distance_matrix_trimmed, adj_list, adj_attr
 
 
 class GaussianDistance(object):
@@ -478,10 +529,12 @@ class CIFData(Dataset):
         # crys = Structure.from_file(os.path.join(self.root_dir,
         # cif_id + '. cif'))
         try:
+            # print(idx)
             cif_fn = self.cif_data[idx]
             cif_id = cif_fn.split('/')[-1].replace('.cif', '')
             # print(cif_id)
             crys = Structure.from_file(cif_fn)
+            ase_crystal = ase.io.read(cif_fn)
         except (RuntimeError, TypeError, NameError, ValueError):
             crys =  Structure.from_file('/home/amir/Rishi/Barlow_CGCNN/lanths/0.cif')
 
@@ -507,6 +560,7 @@ class CIFData(Dataset):
         num_sites = crys.num_sites
 
         mask_num = int(max([1, math.floor(0.10*num_sites)]))#int(np.floor(0.10*num_sites))
+        # print(mask_num)
         indices_remove_1 = np.random.choice(num_sites, mask_num, replace=False)
         indices_remove_2 = np.random.choice(num_sites, mask_num, replace=False)
 
@@ -514,16 +568,35 @@ class CIFData(Dataset):
                               for  i  in  range ( len ( crystal_rot_1 ))])
 
         # mask 10% atoms
+        # if(len ( crystal_rot_1 ) != 10):
+        #   print(cif_id)
+        #   print( len ( crystal_rot_1 ))
+        #   print( len ( crystal_rot_2 ))
+        # print(indices_remove_1)
+        # print(atom_fea_rot_1)
         atom_fea_rot_1[indices_remove_1,:] = 0
+        # print('-----------------------------')
+        # print(atom_fea_rot_1)
+
+        # if(len(atom_fea_rot_1) != 10):
+        #   print('-----------trimmed------------')
+        #   print(indices_remove_1)
+        #   print(atom_fea_rot_1)
         crys_1_length = len(atom_fea_rot_1)
         atom_fea_rot_1 = torch.Tensor(atom_fea_rot_1)
         
         all_nbrs_rot_1 = crystal_rot_1.get_all_neighbors(self.radius, include_index=True)
+        all_distance_1 = ase_crystal.get_all_distances()
+        # print(all_distance)
         # print(all_nbrs_rot_1[0])
         # print('-----------------------------------------------------')
         all_nbrs_rot_1 = [sorted(nbrs, key=lambda x: x[1]) for nbrs in all_nbrs_rot_1]
         nbr_fea_idx_rot_1 , nbr_fea_rot_1  = [], []
+        # print('--------------------')
         for nbr in all_nbrs_rot_1:
+        
+            # print(len(nbr))
+            # print(nbr)
             if len(nbr) < self.max_num_nbr:
                 warnings.warn('{} not find enough neighbors to build graph. '
                               'If it happens frequently, consider increase '
@@ -531,44 +604,51 @@ class CIFData(Dataset):
                 
                 # mask 10% edges
                 keep_edge_num = int(np.ceil(0.90*len(nbr)))
-                # print('-----edge num------')
-                # print(keep_edge_num)
+               
+            
                 keep_edge_indices = np.random.choice(len(nbr), keep_edge_num, replace=False)
+   
                 nbr  = [ nbr [ i ] for  i  in  keep_edge_indices ]
                 nbr_fea_idx_rot_1.append(list(map(lambda x: x[2], nbr)) +
                                   [0] * (self.max_num_nbr - keep_edge_num))
                 nbr_fea_rot_1.append(list(map(lambda x: x[1], nbr)) +
                               [self.radius + 1.] * (self.max_num_nbr - keep_edge_num))
+                
 
             
             else:
                 # mask 10% edges
                 keep_edge_num = int(np.ceil(0.90*self.max_num_nbr))
-                # print('-----edge num------')
-                # print(keep_edge_num)
+              
                 keep_edge_indices = np.random.choice(self.max_num_nbr, keep_edge_num, replace=False)
-                # print('----------------------------------------')
-                # print(keep_edge_indices)
-                # print(nbr)
+
               
                 nbr  = [ nbr [ i ] for  i  in  keep_edge_indices ]
                 nbr_fea_idx_rot_1.append(list(map(lambda x: x[2], nbr)) +
                                   [0] * (self.max_num_nbr - keep_edge_num))
-                # print(nbr)
-                # print('--------------------------------------')
+                
+       
                 nbr_fea_rot_1.append(list(map(lambda x: x[1], nbr)) +
                               [self.radius + 1.] * (self.max_num_nbr - keep_edge_num))
+
+
+               
                 
 
         nbr_fea_idx_rot_1, nbr_fea_rot_1 = np.array(nbr_fea_idx_rot_1), np.array(nbr_fea_rot_1)
-        # print(nbr_fea_idx_rot_1)
         nbr_fea_weight_rot_1 = copy.deepcopy(nbr_fea_rot_1)
-        # nbr_fea_rot_1 = self.gdf.expand(nbr_fea_rot_1)
         atom_fea_rot_1 = torch.Tensor(atom_fea_rot_1)
-        # nbr_fea_rot_1 = torch.Tensor(nbr_fea_rot_1)
         nbr_fea_idx_rot_1 = torch.LongTensor(nbr_fea_idx_rot_1)
-        nbr_fea_weight_rot_1 = torch.Tensor(nbr_fea_weight_rot_1)
-        out1 = dense_to_sparse(nbr_fea_weight_rot_1)
+  
+        distance_matrix_trimmed = threshold_sort(
+            all_distance_1,
+            self.radius,
+            self.max_num_nbr,
+            adj=False,
+        )
+        distance_matrix_trimmed = torch.Tensor(distance_matrix_trimmed)
+
+        out1 = dense_to_sparse(distance_matrix_trimmed)
         edge_index_1 = out1[0]
         edge_weight_1 = out1[1]
 
@@ -577,20 +657,11 @@ class CIFData(Dataset):
         )
         edge_index_1 = edge_index
         edge_weight_1 = edge_weight
-
+      
         nbr_fea_rot_1 = self.gdf.expand(edge_weight_1)
         nbr_fea_rot_1 = torch.Tensor(nbr_fea_rot_1)
 
 
-
-        # print(edge_index_1.size())
-        # print(atom_fea_rot_1.size())
-        # atom_fea_rot_1 = torch.Tensor(atom_fea_rot_1)
-
-        # print(edge_weight_1.size())
-
-
-        # target = torch.Tensor([float(target)])
 
         atom_fea_rot_2 = np.vstack([self.ari.get_atom_fea(crystal_rot_2[i].specie.number)
                               for  i  in  range ( len ( crystal_rot_2 ))])
@@ -609,8 +680,7 @@ class CIFData(Dataset):
                               'radius.'.format(cif_id))
 
                 # mask 10% edges
-                # print('-----edge num------')
-                # print(keep_edge_num)
+            
                 keep_edge_num = int(np.ceil(0.90*len(nbr)))
                 keep_edge_indices = np.random.choice(len(nbr), keep_edge_num, replace=False)
                 nbr  = [ nbr [ i ] for  i  in  keep_edge_indices ]
@@ -622,8 +692,7 @@ class CIFData(Dataset):
             
             else:
                 # mask 10% edges
-                # print('-----edge num------')
-                # print(keep_edge_num)
+              
                 keep_edge_num = int(np.ceil(0.90*self.max_num_nbr))
                 keep_edge_indices = np.random.choice(self.max_num_nbr, keep_edge_num, replace=False)
                 nbr  = [ nbr [ i ] for  i  in  keep_edge_indices ]
@@ -631,20 +700,24 @@ class CIFData(Dataset):
                                   [0] * (self.max_num_nbr - keep_edge_num))
                 nbr_fea_rot_2.append(list(map(lambda x: x[1], nbr)) +
                               [self.radius + 1.] * (self.max_num_nbr - keep_edge_num))
-        # print('-----nbr fea len------')
-        # print(len(nbr_fea_rot_2))
+     
         nbr_fea_idx_rot_2, nbr_fea_rot_2 = np.array(nbr_fea_idx_rot_2), np.array(nbr_fea_rot_2)
         nbr_fea_weight_rot_2 = copy.deepcopy(nbr_fea_rot_2)
-        # nbr_fea_rot_2 = self.gdf.expand(nbr_fea_rot_2)
-        # print('--------------After Gaussian-------------------------------')
-        # # print(nbr_fea_weight_rot_2)
-        # print(len(nbr_fea_rot_2[0][1]))
+        
 
         atom_fea_rot_2 = torch.Tensor(atom_fea_rot_2)
-        # nbr_fea_rot_2 = torch.Tensor(nbr_fea_rot_2)
         nbr_fea_idx_rot_2 = torch.LongTensor(nbr_fea_idx_rot_2)
-        nbr_fea_weight_rot_2 = torch.Tensor(nbr_fea_weight_rot_2)
-        out2 = dense_to_sparse(nbr_fea_weight_rot_2)
+        distance_matrix_trimmed = threshold_sort(
+            all_distance_1,
+            self.radius,
+            self.max_num_nbr,
+            adj=False,
+        )
+        distance_matrix_trimmed = torch.Tensor(distance_matrix_trimmed)
+
+        out2= dense_to_sparse(distance_matrix_trimmed)
+
+        # out2 = dense_to_sparse(nbr_fea_weight_rot_2)
         edge_index_2 = out2[0]
         edge_weight_2 = out2[1]
 
@@ -655,18 +728,12 @@ class CIFData(Dataset):
         # edge_index_1 = edge_index
         # edge_weight_1 = edge_weight
 
+        # print(edge_index_2)
+
         nbr_fea_rot_2 = self.gdf.expand(edge_weight_2)
         nbr_fea_rot_2 = torch.Tensor(nbr_fea_rot_2)
 
-        # print(edge_index_1.size())
-        # print(edge_weight_1.size())
-        # print(nbr_fea_rot_1.size())
-
-
-        # print('-----edge weight------')
-        # print(nbr_fea_weight_rot_2.size())
-        # target = torch.Tensor([float(target)])
-        # target = torch.Tensor([float(target)])
+     
         # return (atom_fea_rot_1, nbr_fea_rot_1, nbr_fea_idx_rot_1), (atom_fea_rot_2, nbr_fea_rot_2, nbr_fea_idx_rot_2), cif_id
         return (atom_fea_rot_1, nbr_fea_rot_1,edge_weight_1, edge_index_1), (atom_fea_rot_2, nbr_fea_rot_2,  edge_weight_2, edge_index_2), cif_id
 

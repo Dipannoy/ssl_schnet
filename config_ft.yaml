@@ -1,7 +1,7 @@
 batch_size: 128
 epochs: 200
 eval_every_n_epochs: 1
-fine_tune_from: ./runs_contrast/Jul16_19-18-11
+fine_tune_from: ./runs_contrast/schnet_pretrain_Aug23_15-36-02
 #./runs_contrast/Oct30_17-55-19
 #./runs_contrast/Oct28_00-50-41
 # fine_tune_from: runs_contrast/Apr21_18-05-12
@@ -17,13 +17,13 @@ optim:
   weight_decay: 1e-6
 
 model: 
-  atom_fea_len: 64
-  h_fea_len: 128
+  atom_fea_len: 100
+  h_fea_len: 64
   n_conv: 3
   n_h: 1
 
 dataset:
-  root_dir: da_bvm_cubic_cifs
+  root_dir: zach_v3_double_perovskites_train_bvm_cif
   max_num_nbr: 12
   radius: 8
   dmin: 0
